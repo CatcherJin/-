@@ -80,5 +80,23 @@ some keys:
 
 总结：加了跳远连接后，每个残差块学到的东西会比没有跳远连接学到的东西少，或者可以说学到的东西更精细、精确，这样在深度很深时将学到的各个精细的成分组合起来会达到很好的效果。
 
+### [5.DenseNet](https://zhuanlan.zhihu.com/p/82901676)
 
+由3-4个dense block组成，每个dense block内部由多个Bottleneck layers组成，每个dense block之间是transition layer层，用于减小feature-map的数量和特征的h,w。
+
+some keys:
+
+​	1.与ResNet不同，在特征组合时不通过直接相加，而是用concate来综合特征，增加了输入的变异性并且提高了效率。
+
+​	2.一个dense block中，后面的Bottleneck layers与前面所有的Bottleneck layers都有连接。
+
+​	3.每个Bottleneck layers都是先1×1卷积，压缩通道到4k大小，便于3×3卷积运算，再3×3卷积输出通道大小为k。
+
+​	4.Transition layers做的是BN+1×1Conv+2×2 avg pool下采样，减小feature-map的数量（由θ决定减少到原来的多少，可设为0.5），同时也减少了feature的宽度。
+
+## 神经网络优化
+
+### 1.Adam
+
+含梯度下降、动量、Adagrad、Rmsprop的思想。
 
