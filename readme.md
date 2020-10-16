@@ -30,7 +30,7 @@ some keys:
 
 [**亮点1：train image和test image大小是不一样的，是通过在测试时更改最后的全连接层为卷积层实现的，也就是测试时网络是全卷积网络，此时计算方式是不变的，只是会因为test image大小大一些导致最后卷积出来的结果会是 a * a * class_num （而不是 1 * 1 * class_num） ，此时只要对每一个通道（即class_num 的a * a矩阵做一个平均就好，再最后对所有的通道做softmax），对应keys #3**](https://www.zhihu.com/question/53420266)
 
-**亮点2：**最终模型的准确率在 **1. [256;512] train image** (在这个区间随机取一个数字并resize到这个大小进行训练)+ **2.dense eval** (即亮点1，用3个不同的Q取test image进行eval)+ **3.multi-crop**(对于每个Q，都进行随机裁剪并随机翻转) + **4.神经网络融合**（ConvNet Fusion）（融合了D和E，基于文中D和E网络的softmax输出的结果的平均进行预测，因为模型之间可以互补，最后的表现还可以再提升一点）时达到最高
+**亮点2**：最终模型的准确率在 **1. [256;512] train image** (在这个区间随机取一个数字并resize到这个大小进行训练)+ **2.dense eval** (即亮点1，用3个不同的Q取test image进行eval)+ **3.multi-crop**(对于每个Q，都进行随机裁剪并随机翻转) + **4.神经网络融合**（ConvNet Fusion）（融合了D和E，基于文中D和E网络的softmax输出的结果的平均进行预测，因为模型之间可以互补，最后的表现还可以再提升一点）时达到最高
 
 some keys:
 
@@ -99,4 +99,76 @@ some keys:
 ### 1.Adam
 
 含梯度下降、动量、Adagrad、Rmsprop的思想。
+
+### 2.[BatchNorm](https://www.jianshu.com/p/78d3fd2841c9)
+
+batchNorm是在batch上，对**NHW**做归一化，即是将同一个batch中的所有样本的**同一层**特征图抽出来一起求mean和variance。
+
+当网络加深时网络参数的微小变动会被逐渐放大，BatchNorm可以让网络的各层输入保持同一分布有利于提升训练效率。
+
+过程：**先归一化，再去归一化**。归一化即对mini-batch上的数据缩放到服从N(0,1)的正态分布![\widehat{x}](https://math.jianshu.com/math?formula=%5Cwidehat%7Bx%7D)，去归一化实际上是一个缩放平移操作![y^{(k)}=\gamma^{(k)}x^{(k)}+\beta^{(k)}](https://math.jianshu.com/math?formula=y%5E%7B(k)%7D%3D%5Cgamma%5E%7B(k)%7Dx%5E%7B(k)%7D%2B%5Cbeta%5E%7B(k)%7D)，其中![\beta](https://math.jianshu.com/math?formula=%5Cbeta)和![\gamma](https://math.jianshu.com/math?formula=%5Cgamma)都是可学习的，因为如果把网络每一层的特征都归一化会影响网络的学习能力。其中，γ与β是可学习的**大小为C**的参数向量（C为输入大小)。
+
+也可以理解为归一化操作限制了网络的学习能力，去归一化操作引入了新的可学习参数，把丢失的学习能力又补了上来。
+
+关于**测试阶段，要使用固定的mean和var**，主流的自动微分框架会在训练时用**滑动平均**的方式统计mean和var，当你使用测试模式的时候，框架会自动载入统计好的mean与var。
+
+缺点：
+
+​	1.需要较大的batch size
+
+​	2.对于可变长度的训练，如RNN，不太适用
+
+​	3.训练阶段需要保存均值和方差，以便测试时使用
+
+### 3.LayerNorm
+
+LN其实就是对每个样本数据作标准化，所以LN不受batch size影响，LayerNorm计算的均值和方差只用于一个样本中，不用于后面的样本数据，LayerNorm中也存在![\gamma](https://private.codecogs.com/gif.latex?%5Cgamma)和![\beta](https://private.codecogs.com/gif.latex?%5Cbeta)可学习参数，并且![\gamma](https://private.codecogs.com/gif.latex?%5Cgamma)和![\beta](https://private.codecogs.com/gif.latex?%5Cbeta)是在特征维度进行，而不是在Batch维度。
+
+### 4.GroupNorm
+
+GroupNorm将channel分组，即是将batch中的单个样本的G层特征图抽出来分别求mean和variance，与batch size无关。输入通道被分成num_groups组，每个组包含num_channels / num_groups个通道。每组的均值和标准差分开计算。
+
+当batch size较小时(小于16时)，使用GroupNorm方法效果更好。
+
+当GroupNorm中num_groups的数量是1的时候, 是与上面的LayerNorm是等价的。
+
+```python
+#BN
+#num_features： C来自期待的输入大小(N,C,H,W)，一般就是通道大小
+torch.nn.BatchNorm2d(num_features, eps=1e-05, momentum=0.1, affine=True)
+
+#LN
+#normalized_shape (int or list or torch.Size)： 来自期待输入大小的输入形状
+#若input.size为(2,3,2,2) 则normalized_shape为input.size()[1:]，即torch.Size([3, 2, 2])
+torch.nn.LayerNorm(normalized_shape, eps=1e-05, elementwise_affine=True)
+
+#GN
+#num_channels：输入通道数
+#num_groups：要分成的组别数
+torch.nn.GroupNormnum_channels(num_groups, num_channels, eps=1e-05, affine=True)
+```
+
+[【总结】](https://www.cnblogs.com/wanghui-garcia/p/10877700.html)
+
+​	1.在batch size较大，数据分布比较接近时，BN的效果更好，但LN的应用范围更广（小mini-batch场景、动态网络场景和 RNN，特别是自然语言处理领域）。 此外，LN 不需要保存 mini-batch 的均值和方差，节省了额外的存储空间。
+
+​	2.BN 的转换是针对单个神经元可训练的——不同神经元的输入经过再平移和再缩放后分布在不同的区间，而 LN 对于一整层的神经元训练得到同一个转换——所有的输入都在同一个区间范围内。如果不同输入特征不属于相似的类别（比如颜色和大小），那么 LN 的处理可能会降低模型的表达能力。
+
+### [5.GAN](https://zhuanlan.zhihu.com/p/83476792)
+
+原始GAN是由一个生成器G和一个判别器D组成的，生成器的目的就是将随机输入的高斯噪声映射成图像（"假图"），判别器则是判断输入图像是否来自生成器的概率，即判断输入图像是否为假图的概率，最优的状态就是“假图”在判别器D中的输出是0.5，即D不知道这幅图是真是假。
+
+损失函数：
+
+![[公式]](https://www.zhihu.com/equation?tex=+%5Cunderset%7BG%7D%7B%5Cmathop%7B%5Cmin+%7D%7D%5C%2C%5Cunderset%7BD%7D%7B%5Cmathop%7B%5Cmax+%7D%7D%5C%2CV%28D%2CG%29%3D%7B%7B%5Cmathbb%7BE%7D%7D%7Bx%5Csim+%7B%7Bp%7D%7Bdata%7D%7D%28x%29%7D%7D%5B%5Clog+D%28x%29%5D%2B%7B%7B%5Cmathbb%7BE%7D%7D%7Bz%5Csim+%7B%7Bp%7D%7Bdata%7D%7D%28z%29%7D%7D%5B%5Clog+%281-D%28G%28z%29%29%29%5D%5Ctag1+)
+
+其中， ![[公式]](https://www.zhihu.com/equation?tex=G) 代表生成器， ![[公式]](https://www.zhihu.com/equation?tex=D) 代表判别器， ![[公式]](https://www.zhihu.com/equation?tex=x) 代表真实数据， ![[公式]](https://www.zhihu.com/equation?tex=p_%7Bdata%7D) 代表真实数据概率密度分布， ![[公式]](https://www.zhihu.com/equation?tex=z) 代表了随机输入数据，该数据是随机高斯噪声。
+
+从判别器 ![[公式]](https://www.zhihu.com/equation?tex=D) 角度来看判别器 ![[公式]](https://www.zhihu.com/equation?tex=D) 希望能尽可能区分真实样本 ![[公式]](https://www.zhihu.com/equation?tex=x) 和虚假样本 ![[公式]](https://www.zhihu.com/equation?tex=G%28z%29) ，因此 ![[公式]](https://www.zhihu.com/equation?tex=D%28x%29) 必须尽可能大， ![[公式]](https://www.zhihu.com/equation?tex=D%28G%28z%29%29) 尽可能小， 也就是 ![[公式]](https://www.zhihu.com/equation?tex=V%28D%2CG%29) 整体尽可能大。从生成器 ![[公式]](https://www.zhihu.com/equation?tex=G) 的角度来看，生成器 ![[公式]](https://www.zhihu.com/equation?tex=G) 希望自己生成的虚假数据 ![[公式]](https://www.zhihu.com/equation?tex=G%28z%29) 可以尽可能骗过判别器 ![[公式]](https://www.zhihu.com/equation?tex=D) ，也就是希望 ![[公式]](https://www.zhihu.com/equation?tex=D%28G%28z%29%29) 尽可能大，也就是 ![[公式]](https://www.zhihu.com/equation?tex=V%28D%2CG%29) 整体尽可能小。GAN的两个模块在训练相互对抗，最后达到全局最优。
+
+那么如何训练？
+
+![[公式]](https://pic4.zhimg.com/80/v2-d32a21eedc7a78bd72d2bf2455e94a6b_1440w.jpg)
+
+即先取m个噪声数据映射为噪声分布，和m个正样本映射成真实数据分布，固定生成器G，利用梯度上升训练判别器D使得上述V（D,G）最大化，这一步进行k次。然后取m个噪声数据映射为噪声分布，固定判别器D，利用梯度下降训练生成器G。上述过程不断迭代。
 
