@@ -168,7 +168,43 @@ torch.nn.GroupNormnum_channels(num_groups, num_channels, eps=1e-05, affine=True)
 
 那么如何训练？
 
-![[公式]](https://pic4.zhimg.com/80/v2-d32a21eedc7a78bd72d2bf2455e94a6b_1440w.jpg)
+![image-20201017201334397](C:\Users\金子\AppData\Roaming\Typora\typora-user-images\image-20201017201334397.png)
 
 即先取m个噪声数据映射为噪声分布，和m个正样本映射成真实数据分布，固定生成器G，利用梯度上升训练判别器D使得上述V（D,G）最大化，这一步进行k次。然后取m个噪声数据映射为噪声分布，固定判别器D，利用梯度下降训练生成器G。上述过程不断迭代。
 
+## 目标检测、分割
+
+### [1.RCNN](https://blog.csdn.net/shenxiaolu1984/article/details/51066975)
+
+算法步骤如下：
+
+- 一张图像生成1K~2K个**候选区域**
+- 对每个候选区域，使用深度网络**提取特征**
+- 特征送入每一类的SVM **分类器**，判别是否属于该类
+- 使用回归器**精细修正**候选框位置
+
+### [2.Fast RCNN](https://blog.csdn.net/shenxiaolu1984/article/details/51036677)
+
+算法步骤如下：
+
+- 先将整张图像输入网络中提取特征，在邻接时，才加入候选框信息（候选区域的前几层特征不需要再重复计算，在末尾的少数几层处理每个候选框，解决了RCNN速度慢的问题），并进行ROI池化，得到固定长度的feature vector 特征表示，将得到的feature 一分为二，一个输入到proposal 分类的全连接，另一个输入到用于bounding box regression的全连接中去。
+- 把类别判断和位置精调统一用深度网络实现，两个损失函数相加，不再需要额外存储。
+
+注：roi_pool层将每个候选区域均匀分成M×N块，对每块进行max pooling。将特征图上大小不一的候选区域转变为大小统一的数据，送入下一层。
+
+测试时，利用窗口得分分别对每一类物体进行非极大值抑制剔除重叠建议框，最终得到每个类别中回归修正后的得分最高的窗口。
+
+### [3.Faster RCNN](https://zhuanlan.zhihu.com/p/31426458)
+
+Faster R-CNN中引入Region Proposal Network(RPN)替代Selective Search，同时引入anchor box应对目标形状的变化问题（anchor就是位置和大小固定的box，可以理解成事先设置好的固定的proposal）
+
+算法步骤如下：
+
+- 对整张图片输进CNN，得到feature map
+- feature map输入到RPN，得到候选框的特征信息
+- 对候选框中提取出的特征，使用分类器判别是否属于一个特定类 
+- 对于属于某一类别的候选框，用回归器进一步调整其位置
+
+关于RPN部分的详解，可以参考[这篇文章](https://blog.csdn.net/u011746554/article/details/74999010)。
+
+![img](https://img-blog.csdn.net/20170324121024882)
