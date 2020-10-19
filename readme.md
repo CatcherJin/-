@@ -208,3 +208,61 @@ Faster R-CNN中引入Region Proposal Network(RPN)替代Selective Search，同时
 关于RPN部分的详解，可以参考[这篇文章](https://blog.csdn.net/u011746554/article/details/74999010)。
 
 ![img](https://img-blog.csdn.net/20170324121024882)
+
+### 4.YOLO v1
+
+思想是一个单一的神经网络在一次评估中直接从完整图像预测边界框和类概率，使用回归的方法。
+
+即 将一幅图像分成SxS个网格，每个网络需要预测B个BBox，每个bounding box要预测(x, y, w, h)和confidence共5个值，每个网格还要预测一个类别信息，记为C类，则输出就是S x S x (5*B+C)的一个tensor。
+
+训练时：
+
+​	1.一幅图像卷积+全连接后得到S x S x (5*B+C)的一个tensor，每个点的通道含(5*B+C)个数据。
+
+​	2.对于包含object的点，做类别预测，并对与ground truth box IOU最大的那个box（称为负责的box）做confidence error进行惩罚（将confidence push到1）（其他的box不做confidence error）和位置回归（更大的loss weight），这样这个置信度最大box的confidence会越来越大，位置会越来越准确。
+
+​	3.对于不含object的网格中的box也对confidence error（只不过是将其confidence push到0），但是前面需要加一个更小的weight
+
+测试时：
+
+​	1.每个网格取预测的confidence最大的那个bounding box
+
+​	2.对保留的boxes进行NMS处理，就得到最终的检测结果
+
+缺点：
+
+​	1.虽然每个格子可以预测B个bounding box，但是最终只选择只选择IOU最高的bounding box作为物体检测输出，即每个格子最多只预测出一个物体。
+
+​	2.loss函数中，大物体IOU误差和小物体IOU误差对网络训练中loss贡献值接近（虽然采用求平方根方式，但没有根本解决问题）。
+
+### [5.YOLO v2](https://blog.csdn.net/u014380165/article/details/77961414)
+
+![img](https://img-blog.csdn.net/20180910193802403?watermark/2/text/aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2xldmlvcGt1/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70)
+
+相对于YOLO v1的改进点：
+
+- BN：为每个卷积层都添加了BN层
+- High Resolution Classifier：YOLOv2将预训练分成两步，先用224\*224的输入从头开始训练网络，大概160个epoch（表示将所有训练数据循环跑160次），然后再将输入调整到448\*448，再训练10个epoch。注意这两步都是在ImageNet数据集上操作。最后再在检测的数据集上fine-tuning，也就是detection的时候用448\*448的图像作为输入就可以顺利过渡了。作者的实验表明这样可以提高几乎4%的MAP
+- Convolutional With Anchor Boxes：卷积后得到13*13的feature map，每个点又有对应的固定的Anchor Boxes
+- new network：使卷积后的feature map是奇数的，这样中心点只有一个，因为有一个预测框在中心的概率很大，这样回归时速度更快
+- Dimension priors：作者采用k-means的方式对训练集的bounding boxes做聚类，试图找到合适的anchor box
+- Location prediction：作者没有采用直接预测offset的方法，还是沿用了YOLO v1算法中直接预测相对于grid cell的坐标位置的方式。前面提到网络在最后一个卷积层输出13*13大小的feature map，然后每个cell预测5个bounding box，然后每个bounding box预测5个值：tx，ty，tw，th和to（这里的to类似YOLO v1中的confidence）。看下图，tx和ty经过sigmoid函数处理后范围在0到1之间，这样的归一化处理也使得模型训练更加稳定；cx和cy表示一个cell和图像左上角的横纵距离；pw和ph表示预设的bounding box的宽高，这样bx和by就是cx和cy这个cell附近的anchor来预测tx和ty得到的结果。
+
+![这里写图片描述](https://img-blog.csdn.net/20170913081748999?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvdTAxNDM4MDE2NQ==/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast)
+
+- passthrough：将前面一层的26 * 26的feature map和本层的13 * 13的feature map进行连接，有点像ResNet，因为13 * 13的feature map对于比较小的object不友好，所以加上26 * 26的，即网格更小，预测更准。
+- Multi-Scale：：就是在训练时输入图像的size是动态变化的，即在训练网络时，每训练10个batch，网络就会随机选择另一种size的输入，作者采用32的倍数作为输入的size，具体来讲文中作者采用从{320,352,…,608}的输入尺寸。这样会使模型更加robust。
+
+### [6.YOLO v3](https://blog.csdn.net/leviopku/article/details/82660381)
+
+在v2的基础上，有以下改进：
+
+- 用了DarkNet-53作为backbone提取特征，同时也提供了DarkNet-19和tiny-DarkNet，在速度和准确率上有一个自主的权衡。
+- 有两个cancat拼接过程，用的是前面特征层和后面特征层的上采样（插值的方法使图片变大）
+- 聚类后得到9个cachor box，分别为大、中、小各3个，对应与y1、y2、y3这三个feature map，即y1负责预测大的检测框，y2、y3以此类推。
+- 每个feature map通道数为255，是因为对于COCO类别而言，有80个种类，每个box应该对每个种类都输出一个概率，同时每个box需要有(x, y, w, h, confidence)五个基本参数，则255对应于3个box，每个box 5+80个预测值，3 * （5+80）= 255，
+- 每个网格有3个anchor box，在predict之前会对每个anchor box做一个评分，只取有必要的部分进行logistic回归。我的理解是和目标object的IOU很大或者很小，这样可以把confidence push到1或0，但是文中的意思YOLO v3中每个网格好像最多只取1个anchor box（评分最高的那个box）进行回归
+- 损失函数部分，除了w, h的损失函数依然采用平方误差之外，其他部分的损失函数用的是二值交叉熵
+
+![img](https://img-blog.csdn.net/2018100917221176?watermark/2/text/aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2xldmlvcGt1/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70)
+
