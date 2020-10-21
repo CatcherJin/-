@@ -266,3 +266,21 @@ Faster R-CNN中引入Region Proposal Network(RPN)替代Selective Search，同时
 
 ![img](https://img-blog.csdn.net/2018100917221176?watermark/2/text/aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2xldmlvcGt1/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70)
 
+### [7.YOLO v4](https://zhuanlan.zhihu.com/p/150127712)
+
+相对于v3来说就是结合了各种tricks，并以YOLO V3为基础进行改进，YOLO V4在保证速度的同时，大幅提高模型的检测精度，有以下几点改进：
+
+- 相较于YOLO V3的DarkNet53，YOLO V4用了CSPDarkNet53
+- 相较于YOLO V3的FPN,YOLO V4用了SPP+PAN
+- CutMix数据增强和马赛克（Mosaic）数据增强
+- DropBlock正则化
+- [损失函数](https://zhuanlan.zhihu.com/p/159209199)部分，分类损失和置信度损失没变，但是bounding box regression损失改变了，v3中x，y和h，w是分开归回的，但是x，y，h，w他们是有一定关系的，在v4中用了一种称为CIOU的损失函数来进行位置回归，CIOU综合考虑到了真实框和预测框的**重叠面积**（越大越好，即1-IOU（A,B）越小越好），**中心点距离**，**长宽比**，定义如下：
+
+![[公式]](https://www.zhihu.com/equation?tex=L_%7BCIOU%7D%3D1-IOU%28A%2CB%29%2B%5Crho%5E%7B2%7D%28A_%7Bctr%7D%2CB_%7Bctr%7D%29%2Fc%5E%7B2%7D%2B%5Calpha.v)
+
+还有很多改进（例如自对抗训练Adversarial Training等等）...这里就不举例了，可以参考原文
+
+![img](https://pic3.zhimg.com/v2-4d60d4d8319e0213491bb52a179e152e_r.jpg)
+
+
+
