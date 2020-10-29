@@ -174,6 +174,8 @@ torch.nn.GroupNormnum_channels(num_groups, num_channels, eps=1e-05, affine=True)
 
 ## 目标检测、分割
 
+【说明】目标检测的主流算法主要分为两类：（1）**two-stage方法**，如R-CNN系算法，其主要思路是先通过启发式方法（selective search）或者CNN网络（RPN)产生一系列稀疏的候选框，然后对这些候选框进行分类与回归，two-stage方法的优势是准确度高；（2）**one-stage方法**，如Yolo和SSD，其主要思路是均匀地在图片的不同位置进行密集抽样，抽样时可以采用不同尺度和长宽比，然后利用CNN提取特征后直接进行分类与回归，整个过程只需要一步，所以其优势是速度快，但是均匀的密集采样的一个重要缺点是训练比较困难，这主要是因为正样本与负样本（背景）极其不均衡（参见[Focal Loss](https://link.zhihu.com/?target=https%3A//arxiv.org/abs/1708.02002)），导致模型准确度稍低。
+
 ### [1.RCNN](https://blog.csdn.net/shenxiaolu1984/article/details/51066975)
 
 算法步骤如下：
@@ -202,7 +204,7 @@ Faster R-CNN中引入Region Proposal Network(RPN)替代Selective Search，同时
 
 - 对整张图片输进CNN，得到feature map
 - feature map输入到RPN，得到候选框的特征信息
-- 对候选框中提取出的特征，使用分类器判别是否属于一个特定类 
+- 对候选框中提取出的特征进行[ROI POOLing](https://blog.csdn.net/AUTO1993/article/details/78514071)，使用分类器判别是否属于一个特定类 
 - 对于属于某一类别的候选框，用回归器进一步调整其位置
 
 关于RPN部分的详解，可以参考[这篇文章](https://blog.csdn.net/u011746554/article/details/74999010)。
@@ -282,5 +284,133 @@ Faster R-CNN中引入Region Proposal Network(RPN)替代Selective Search，同时
 
 ![img](https://pic3.zhimg.com/v2-4d60d4d8319e0213491bb52a179e152e_r.jpg)
 
+### [8.SSD](https://zhuanlan.zhihu.com/p/33544892)
 
+全名Single Shot MultiBox Detector，即one-stage方法，MultiBox指SSD是多框预测，采用CNN提取的不同尺度的特征图来来直接进行检测。
+
+步骤如图所示：![img](https://pic1.zhimg.com/v2-a43295a3e146008b2131b160eec09cd4_r.jpg)
+
+注：
+
+- 前面feature map的size较大，提取特征范围小，所以用来预测小的目标，后面的feature map size小，提取特征范围大，用来预测大的目标，不同大小的feature map预设的anchor box大小不同（大小是根据一个公式算出来的，比例由预设值得到），且每个网格单元预设的anchor box数量也不同（有4个有6个）
+- 令 ![[公式]](https://www.zhihu.com/equation?tex=n_k) 为特征图所采用的anchor box数目，那么类别置信度需要的卷积核数量为 ![[公式]](https://www.zhihu.com/equation?tex=n_k%5Ctimes+c) （c包含背景，即真正的类别数只有c-1个），而边界框位置需要的卷积核数量为 ![[公式]](https://www.zhihu.com/equation?tex=n_k%5Ctimes+4) 。由于每个先验框都会预测一个边界框，所以SSD300一共可以预测 ![[公式]](https://www.zhihu.com/equation?tex=38%5Ctimes38%5Ctimes4%2B19%5Ctimes19%5Ctimes6%2B10%5Ctimes10%5Ctimes6%2B5%5Ctimes5%5Ctimes6%2B3%5Ctimes3%5Ctimes4%2B1%5Ctimes1%5Ctimes4%3D8732) 个边界框，这是一个相当庞大的数字，所以说SSD本质上是密集采样
+- 训练时，首先要确定训练图片中的ground truth（真实目标）与哪个先验框来进行匹配，与之匹配的先验框所对应的边界框将负责预测它。在Yolo中，ground truth的中心落在哪个单元格，该单元格中与其IOU最大的边界框负责预测它。但是在SSD中却完全不一样，SSD的先验框与ground truth的匹配原则主要有两点。首先，**第一个原则**，对于图片中每个ground truth，找到与其IOU最大的先验框，该先验框与其匹配，这样，可以保证每个ground truth一定与某个先验框匹配。通常称与ground truth匹配的先验框为正样本，反之，若一个先验框没有与任何ground truth进行匹配，那么该先验框只能与背景匹配，就是负样本。一个图片中ground truth是非常少的， 而先验框却很多，如果仅按第一个原则匹配，很多先验框会是负样本，正负样本极其不平衡，所以需要第二个原则。**第二个原则**是：对于剩余的未匹配先验框，若某个ground truth的 ![[公式]](https://www.zhihu.com/equation?tex=%5Ctext%7BIOU%7D) 大于某个阈值（一般是0.5），那么该先验框也与这个ground truth进行匹配。这意味着某个ground truth可能与多个先验框匹配。第二个原则一定在第一个原则之后进行，仔细考虑一下这种情况，如果某个ground truth所对应最大 ![[公式]](https://www.zhihu.com/equation?tex=%5Ctext%7BIOU%7D) 小于阈值，并且所匹配的先验框却与另外一个ground truth的 ![[公式]](https://www.zhihu.com/equation?tex=%5Ctext%7BIOU%7D) 大于阈值，那么该先验框应该匹配谁，答案应该是前者，**首先要确保某个ground truth一定有一个先验框与之匹配**。但是，这种情况我觉得基本上是不存在的。由于先验框很多，某个ground truth的最大 ![[公式]](https://www.zhihu.com/equation?tex=%5Ctext%7BIOU%7D) 肯定大于阈值，所以可能只实施第二个原则既可以了。
+- 尽管一个ground truth可以与多个先验框匹配，但是ground truth相对先验框还是太少了，所以负样本相对正样本会很多。为了保证正负样本尽量平衡，SSD采用了hard negative mining，就是对负样本进行抽样，抽样时按照置信度误差（预测背景的置信度越小，误差越大）进行降序排列，选取误差的较大的top-k作为训练的负样本，以保证正负样本比例接近1:3
+
+### 9.RetinaNet
+
+全文针对现有one-stage目标检测模型中前景(positive)和背景(negatives)类别的不平衡问题，提出了一种叫做[**Focal Loss**](https://blog.csdn.net/wfei101/article/details/79477303)的损失函数：FL(p<sub>t</sub>) = -α<sub>t</sub>(1-p<sub>t</sub>)<sup>γ</sup>log(p<sub>t</sub>)，而普通的交叉熵为CE(p<sub>t</sub>) = -log(p<sub>t</sub>)
+
+​	1.第一个改进点为α<sub>t</sub>，用于解决**类别数量不平衡**问题，对于属于少数类别的样本，增大α即可，这样类别数少的样本，在计算loss时，loss会更大一些，loss大学习会相对容易一些。
+
+​	2.第二个改进点为(1-p<sub>t</sub>)<sup>γ</sup>，用于解决**难/易分样本不平衡**问题，一旦乘上了该权重，样本越易分，pt越大，(1-p<sub>t</sub>)<sup>γ</sup>则越小，loss就会很小，贡献的对loss的下降就会很小，反之，样本越难分，预测的pt就会很小，此时计算出来的loss会相对大一些，则它对loss下降的贡献就会大一些，模型会更加注意这种类别的学习。在实验中，发现 γ = 2 ， α = 0.25 的取值组合效果最好。
+
+### 10.FPN
+
+虽然不同层的特征图尺度已经不同，形似金字塔结构，但是前后层之间由于不同深度的影响，语义信息差距太大，主要是高分辨率的低层特征很难有代表性的检测能力，所以SSD虽然利用了低层的特征，但是在小目标检测上还有待提升。
+
+而FPN把低分辨率、高语义信息的高层特征 和 高分辨率、低语义信息的低层特征进行自上而下的侧边连接，使得所有尺度下的特征都有丰富的语义信息。
+
+![这里写图片描述](https://img-blog.csdn.net/20170707153508827?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvSmVzc2VfTXg=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast)
+
+把FPN应用于Faster RCNN时，不同层融合后的feature map产生不同的anchor box，那么这些anchor box选择哪一层的feature map做ROI POOLing合适呢？注意不是哪层产生的anchor box就用于哪层的feature map，而是经过一个公式计算得到的，公式如下：
+
+![这里写图片描述](https://img-blog.csdn.net/20170117220352603?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvSmVzc2VfTXg=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/SouthEast)
+
+224是ImageNet的标准输入，k0是基准值，设置为5，代表P5层的输出（原图大小就用P5层），w和h是ROI区域（就是变形后的anchor box，region of interest）的长和宽，假设ROI是112 * 112的大小，那么k = k0-1 = 5-1 = 4，意味着该ROI应该使用P4的特征层。k值会做取整处理，防止结果不是整数。
+
+### 11.FCN
+
+![img](https://img-blog.csdn.net/20160508234037674)
+
+蓝色：卷积
+
+绿色：maxpool
+
+灰色：crop
+
+橙色：反卷积操作
+
+黄色：相加
+
+当我们想从2\*2的特征图映射到32\*32的特征图时，我们只要填入相应的参数（包括filter，padding，stride），这些参数与特征图32\*32直接卷积成2\*2的特征图参数**一致**。
+
+### [12.Mask RCNN](https://zhuanlan.zhihu.com/p/37998710)
+
+Mask RCNN = ResNet-FPN+Fast RCNN+mask，也就是加上FPN的Faster RCNN再加上mask
+
+![img](https://pic1.zhimg.com/v2-18b0db72ed142c8208c0644c8b5a8090_r.jpg)
+
+前面提取的特征参照Faster RCNN和FPN那两篇文章，没什么变化，需要注意RPN提取的不同大小的anchor box不一定是去前面那个feature map切割的，是根据一个公式计算出来的，因为大的anchor box最好去靠后的feature map切割，而Mask RCNN这篇paper提出了**两个创新点**来解决实例分割：
+
+​	1.**用ROI Align代替ROI pooling**：普通的Faster RCNN中因为要对anchor box取整再进行划分pool，会造成“不匹配问题”（misalignment），使得ROI不准确，（别看不到1像素的偏移很小，但是在后面分辨率低的feature map上1像素的偏移会造成很大的偏差）。而ROI Align方法取消整数化操作，保留了小数，使用双线性插值的方法获得坐标为浮点数的像素点上的图像数值。具体操作可以看上面这篇[文章](https://zhuanlan.zhihu.com/p/37998710)。
+
+​	2.多了mask分支：注意多出来的mask分支是对ROI Align提取的固定大小的feature map进行的，也就是说只在目标检测的基础上进行mask，或者说最后的实例涂色是只在那个方框里进行的。
+
+![img](https://pic1.zhimg.com/80/v2-a500524ae104ae4eaf9a929befe2ba0c_720w.jpg)
+
+最后的损失是：![[公式]](https://www.zhihu.com/equation?tex=L%3DL_%7Bcls%7D%2BL_%7Bbox%7D%2BL_%7Bmask%7D)，其中 ![[公式]](https://www.zhihu.com/equation?tex=L_%7Bmask%7D)：
+
+假设一共有K个类别，则mask分割分支的输出维度是 m * m * k , 对于 m * m 中的每个点，都会输出K个二值Mask（**每个类别使用sigmoid输出**）。需要注意的是，训练计算loss的时候，并不是每个类别的sigmoid输出都计算二值交叉熵损失，而是该像素属于哪个类，哪个类的sigmoid输出才要计算损失。并且在测试的时候，是通过分类分支预测的类别来选择相应的mask预测。这样，mask预测和分类预测就彻底解耦了。
+
+这与FCN方法是不同的，FCN是对每个像素进行多类别softmax分类，然后计算交叉熵损失，很明显，这种做法是会造成类间竞争的，而每个类别使用sigmoid输出并计算二值损失，可以避免类间竞争。实验表明，通过这种方法，可以较好地提升性能。
+
+### [13.FCOS](https://zhuanlan.zhihu.com/p/63868458)
+
+FCOS: Fully Convolutional One-Stage Object Detection，是基于FCN的逐像素目标检测算法，是anchor free的，核心思想就是预测输入图像中每个点所属的目标类别和目标框。
+
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20190605224049230.jpg?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3UwMTQzODAxNjU=,size_16,color_FFFFFF,t_70)
+
+一些关键点：
+
+- feature map上的位置(x,y)可以通过下面这个公式换算成输入图像的位置，其中s表示缩放比例，这样就方便计算特征图上每个点的分类和回归目标
+
+![在这里插入图片描述](https://img-blog.csdnimg.cn/20190605224034429.jpg)
+
+- Classification部分，输入图像上每个点的类别标签根据这个点是否在标注框内来确定，在标注框外的点就是负样本，类别设置为0
+- Regression部分，FCOS的回归部分预测4个值(l, t, r, b)，分别表示目标框内某个点离框的左边、上边、右边、下边的距离，因为这4个值都是正的，所以为了保证回归支路的输出结果都是正，回归支路的输出会通过exp()函数再输出
+- 为了解决某个像素点同时出现在两个目标框中时，那么这个像素点该属于哪个类的问题，FCOS在特征提取部分参照了FPN思想做了特征融合，不同的feature map对于不同大小的目标框，这也是假设两个重叠的目标框大小有差异这个方法才会生效，若两个目标框大小差不多，则选择一个最合适的即可。
+- Center-ness部分，因为作者发现误差产生主要是因为部分误检框离真实框的中心点距离较大，因此作者设计了这样一个分支（可以理解为代表一个权重，称为“中心度”，对应的损失函数如下，可以看到离中心点越远的点权重越小），测试时，将预测的中心度与相应的分类分数相乘，计算最终得分(用于对检测到的边界框进行排序)。因此，中心度可以降低远离对象中心的边界框的权重。这些低质量边界框很可能被最终的非最大抑制（NMS）过程滤除，从而显着提高了检测性能。
+
+![[公式]](https://www.zhihu.com/equation?tex=cenerness%5E%7B%2A%7D%3D%5Csqrt%7B%5Cfrac%7B%5Cmin+%5Cleft%28l%5E%7B%2A%7D%2C+r%5E%7B%2A%7D%5Cright%29%7D%7B%5Cmax+%5Cleft%28l%5E%7B%2A%7D%2C+r%5E%7B%2A%7D%5Cright%29%7D+%5Ctimes+%5Cfrac%7B%5Cmin+%5Cleft%28t%5E%7B%2A%7D%2C+b%5E%7B%2A%7D%5Cright%29%7D%7B%5Cmax+%5Cleft%28t%5E%7B%2A%7D%2C+b%5E%7B%2A%7D%5Cright%29%7D%7D)
+
+### [14.CenterNet](https://zhuanlan.zhihu.com/p/66048276)
+
+CenterNet将目标作为一个点（目标框的中心点），采用关键点估计来找到中心点，并回归到其他目标属性。此时仅仅将图像传入全卷积网络，得到一个热力图，热力图峰值点即中心点，每个特征图峰值点的对应位置回归了目标的宽高信息，因此此方法不需要后期进行NMS处理，因为一个目标框只对应热力图中的一个峰值点。
+
+最终训练时的损失函数分为3部分，分别是L<sub>k</sub> (类别)，L<sub>size</sub> (宽、高)，L<sub>off</sub> (中心点偏差)
+
+![img](https://img-blog.csdnimg.cn/20190417194613626.png)
+
+- L<sub>k</sub> 类别（热力图），将原始图片输入到网络，输出的热力图是![\hat{Y}\epsilon [0,1]^{\frac{W}{R}\times \frac{H}{R}\times C}](https://private.codecogs.com/gif.latex?%5Chat%7BY%7D%5Cepsilon%20%5B0%2C1%5D%5E%7B%5Cfrac%7BW%7D%7BR%7D%5Ctimes%20%5Cfrac%7BH%7D%7BR%7D%5Ctimes%20C%7D) ，C为类别数，![\hat{Y}_{x,y,c}=1](https://private.codecogs.com/gif.latex?%5Chat%7BY%7D_%7Bx%2Cy%2Cc%7D%3D1) 表示检测到的关键点；![\hat{Y}_{x,y,c}=0](https://private.codecogs.com/gif.latex?%5Chat%7BY%7D_%7Bx%2Cy%2Cc%7D%3D0) 表示背景 ，那么热力图的GT怎么得到（为了后续训练）？是根据原始图片中的关键点通过高斯核分散到热力图中得到的， 对于原始图片的关键点 c ,其位置为 ![p \epsilon R^{2}](https://private.codecogs.com/gif.latex?p%20%5Cepsilon%20R%5E%7B2%7D) ，计算得到低分辨率（经过下采样）上对应的关键点 ![\tilde{p}=\left \lfloor \frac{p}{R} \right \rfloor](https://private.codecogs.com/gif.latex?%5Ctilde%7Bp%7D%3D%5Cleft%20%5Clfloor%20%5Cfrac%7Bp%7D%7BR%7D%20%5Cright%20%5Crfloor) . 我们将 GT 关键点通过高斯核![img](https://img-blog.csdnimg.cn/20190417191729651.png)分散到热力图![img](https://img-blog.csdnimg.cn/20190417191817652.png) 上 ，其中![img](https://img-blog.csdnimg.cn/20190417191851264.png) 是一个与目标大小(也就是w和h)相关的标准差。（可以看上面那个[链接](https://zhuanlan.zhihu.com/p/66048276)，写的很详细）
+- L<sub>off</sub> 位置偏差，因为图像下采样时，GT的关键点会因数据是离散的而产生偏差（除了后产生小数然后取了整），所有类别 c 共享同个偏移预测
+- L<sub>size</sub> 目标框的高、宽回归，和对应的GT产生L1损失
+
+[15.DETR](https://zhuanlan.zhihu.com/p/266069794)
+
+
+
+
+
+
+
+
+
+## 自然语言处理、时序建模
+
+### 1.LSTM
+
+![image-20201024200611652](C:\Users\金子\AppData\Roaming\Typora\typora-user-images\image-20201024200611652.png)
+
+### 2.Seq2Seq
+
+![image-20201024200703347](C:\Users\金子\AppData\Roaming\Typora\typora-user-images\image-20201024200703347.png)
+
+### 3.Transformer
+
+Encoder部分重点看[这篇文章](https://blog.csdn.net/yujianmin1990/article/details/85221271)
+
+Decoder部分重点看[这篇文章](https://zhuanlan.zhihu.com/p/34781297)
+
+建议上面两篇都看
 
